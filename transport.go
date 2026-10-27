@@ -151,6 +151,12 @@ type Transport struct {
 	httpRoundTripWrappers []HttpRoundTripWrapper
 }
 
+// DefaultTLSClientConfig, if not nil, is the TLS config every Transport
+// created afterwards starts from, ALPN protocols aside. It lets a program add
+// its own certificate checks, such as a blocklist, to clients that libraries
+// create without exposing their TLS config. Set it before creating clients.
+var DefaultTLSClientConfig *tls.Config
+
 // NewTransport is an alias of T
 func NewTransport() *Transport {
 	return T()
@@ -158,6 +164,11 @@ func NewTransport() *Transport {
 
 // T create a Transport.
 func T() *Transport {
+	tlsConfig := DefaultTLSClientConfig.Clone()
+	if tlsConfig == nil {
+		tlsConfig = &tls.Config{}
+	}
+	tlsConfig.NextProtos = []string{"http/1.1", "h2"}
 	t := &Transport{
 		Options: transport.Options{
 			Proxy:                 http.ProxyFromEnvironment,
@@ -165,7 +176,7 @@ func T() *Transport {
 			IdleConnTimeout:       90 * time.Second,
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
-			TLSClientConfig:       &tls.Config{NextProtos: []string{"http/1.1", "h2"}},
+			TLSClientConfig:       tlsConfig,
 		},
 	}
 	t.t2 = &h2internal.Transport{Options: &t.Options}
