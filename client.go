@@ -1229,7 +1229,10 @@ type uTLSConn struct {
 }
 
 func (conn *uTLSConn) ConnectionState() tls.ConnectionState {
-	cs := conn.Conn.ConnectionState()
+	return toTLSConnectionState(conn.Conn.ConnectionState())
+}
+
+func toTLSConnectionState(cs utls.ConnectionState) tls.ConnectionState {
 	return tls.ConnectionState{
 		Version:                     cs.Version,
 		HandshakeComplete:           cs.HandshakeComplete,
@@ -1276,6 +1279,14 @@ func (c *Client) setTLSFingerprint(clientHelloID utls.ClientHelloID, uTLSConnApp
 			MaxVersion:                  tlsConfig.MaxVersion,
 			DynamicRecordSizingDisabled: tlsConfig.DynamicRecordSizingDisabled,
 			KeyLogWriter:                tlsConfig.KeyLogWriter,
+			// Keep the caller's own certificate checks, such as a blocklist,
+			// which would otherwise be skipped whenever a fingerprint is set.
+			VerifyPeerCertificate: tlsConfig.VerifyPeerCertificate,
+		}
+		if verify := tlsConfig.VerifyConnection; verify != nil {
+			utlsConfig.VerifyConnection = func(cs utls.ConnectionState) error {
+				return verify(toTLSConnectionState(cs))
+			}
 		}
 		uconn := &uTLSConn{utls.UClient(plainConn, utlsConfig, clientHelloID)}
 		if uTLSConnApply != nil {
@@ -1287,22 +1298,9 @@ func (c *Client) setTLSFingerprint(clientHelloID utls.ClientHelloID, uTLSConnApp
 		if err != nil {
 			return
 		}
-		cs := uconn.Conn.ConnectionState()
+		cs := uconn.ConnectionState()
 		conn = uconn
-		tlsState = &tls.ConnectionState{
-			Version:                     cs.Version,
-			HandshakeComplete:           cs.HandshakeComplete,
-			DidResume:                   cs.DidResume,
-			CipherSuite:                 cs.CipherSuite,
-			NegotiatedProtocol:          cs.NegotiatedProtocol,
-			NegotiatedProtocolIsMutual:  cs.NegotiatedProtocolIsMutual,
-			ServerName:                  cs.ServerName,
-			PeerCertificates:            cs.PeerCertificates,
-			VerifiedChains:              cs.VerifiedChains,
-			SignedCertificateTimestamps: cs.SignedCertificateTimestamps,
-			OCSPResponse:                cs.OCSPResponse,
-			TLSUnique:                   cs.TLSUnique,
-		}
+		tlsState = &cs
 		return
 	}
 	c.Transport.SetTLSHandshake(fn)
